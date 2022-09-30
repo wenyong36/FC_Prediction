@@ -220,8 +220,8 @@ class DA(object):
         state_all = np.array(state_all)
         path = kwargs.get("path", "./da_results")
         np.save(os.path.join(path, "state.npy"), state_all)
-        self.show_bold(self.state_matrix, bold_observation.reshape((-1, 1)), T, path, self.node)
-        hp = self.sigmoid_map(self.state_matrix[:, :, :, :self.num_params]).mean(axis=1)
+        self.show_bold(state_all, bold_observation.reshape((-1, 1)), T, path, self.node)
+        hp = self.sigmoid_map(state_all[:, :, :, :self.num_params]).mean(axis=1)
         self.show_hp(hp, T, path, self.node, self.num_params, hp_real=None)
 
 

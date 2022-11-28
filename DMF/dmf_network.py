@@ -44,7 +44,6 @@ def dynamical_equation(t, y, g, w_ie, Cij, args):
     """
     dydt = np.zeros_like(y)
     n = len(y)
-    assert g.shape == y.shape
     w_ee, w_ei, w_ii, w_e, w_i, j_nmda, j_i, I_b, alpha_e, b_e, d_e, alpha_i, b_i, d_i, tau_e, tau_i, gamma, sigma = args
     I_e = w_e * I_b + w_ee * j_nmda * y[::2] + g * j_nmda * np.dot(Cij, y[::2]) - w_ie * j_i * y[1::2]
     I_i = w_i * I_b + w_ei * j_nmda * y[::2] - w_ii * j_i * y[1::2]
@@ -98,13 +97,13 @@ def integrate(pm, init=None, g=1., w_ie=0.1, console_output=True):
 
     # Time integration
     if console_output:
-        print('\nNetwork with', pm.N, 'nodes | Integrating', pm.t[-1],
-              'time units:')
+        print('Network with', pm.N, 'nodes | Integrating', pm.t[-1], 'time units:')
     computation_start = time()
     step = 1
     while network.successful() and step < len(pm.t):
         network.integrate(pm.t[step])
         theta_t[step] = network.y
+        print(step, network.y)
         if console_output:
             progress = step / (len(pm.t))
             progress_bar(progress, time() - computation_start)

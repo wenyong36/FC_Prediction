@@ -3,8 +3,10 @@
 # @Author : wy36
 # @File : simulation.py
 import numpy as np
+import torch
 from model import parameter
-from DMF import dmf_network as node_network
+from DMF import dmf_network_pytorch as node_network
+# from DMF import dmf_network as node_network
 import matplotlib.pyplot as plt
 
 
@@ -21,9 +23,9 @@ def simulation_demo():
     pm.data2connection("../data/Desikan_68/data/sc_train.csv", True)
     Cij = pm.Cij
     w_ee, w_ei, w_ii, w_e, w_i, j_nmda, j_i, I_b, alpha_e, b_e, d_e, alpha_i, b_i, d_i, tau_e, tau_i, gamma, sigma = pm.args
-    g = 1
-    w_ie = 0.5
-    y = node_network.integrate(pm, init=None, g=1., w_ie=1., console_output=True)
+    g = 0.05
+    w_ie = 5
+    y = node_network.integrate(pm, init=None, g=g, w_ie=w_ie, console_output=True)
     fig = plt.figure(figsize=(8, 6), dpi=100)
     ax1 = fig.add_subplot(6, 1, 1)
     ax2 = fig.add_subplot(6, 1, 2)
@@ -49,8 +51,25 @@ def simulation_demo():
     ax2.set_xticklabels(np.linspace(0, T, 5, dtype=np.int_, endpoint=False))
     ax1.set_ylabel(r"$S_e$")
     ax2.set_ylabel(r"$S_i$")
+    ax3.set_ylabel(r"$I_e$")
+    ax4.set_ylabel(r"$I_i$")
+    ax5.set_ylabel(r"$r_e$")
+    ax6.set_ylabel(r"$r_i$")
     fig.tight_layout()
     fig.show()
 
 
-simulation_demo()
+def simulation_pytorch():
+    T = 10
+    pm = parameter.Parameter(time=T)
+    pm.data2connection("../data/Desikan_68/data/sc_train.csv", True)
+    Cij = pm.Cij
+    w_ie = torch.tensor([1.]).reshape(1, len(Cij))
+    print(Cij.shape, w_ie.shape)
+    y = node_network(w_ie, Cij, 0.05)
+
+
+
+
+
+simulation_pytorch()

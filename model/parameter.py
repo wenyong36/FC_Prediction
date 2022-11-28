@@ -10,7 +10,7 @@ import pandas as pd
 class Parameter:
     def __init__(self, time=3):
         self.N = 90  # number of nodes
-        self.t = np.linspace(0, time, time * 100)
+        self.t = np.linspace(0, time, time * 1000)
         w_ee, w_ei, w_ii = 1.4, 1., 1.
         w_e, w_i = 1., 0.7
         j_nmda, j_i = 0.15, 1.
@@ -265,7 +265,7 @@ class Parameter:
     def data2connection(self, path="../data/Desikan_68/data/sc_train.csv", console_output=False):
         data = pd.read_csv(path, header=None)
         self.Cij = data.values
-        self.Cij /= self.Cij.max()
+        self.Cij /= self.Cij.max()# sum(1, keepdims=True)
         self.N = data.shape[0]
         if console_output:
             print("read csv file finish")

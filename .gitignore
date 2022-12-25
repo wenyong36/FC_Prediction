@@ -519,3 +519,6 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 .idea/
+/hello world.py
+/DMF/dmf_network_zlb.py
+/DMF/simulation_zlb.py

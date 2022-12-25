@@ -5,8 +5,7 @@
 import numpy as np
 import torch
 from model import parameter
-from DMF import dmf_network_pytorch as node_network
-# from DMF import dmf_network as node_network
+from DMF import dmf_network_zlb as node_network
 import matplotlib.pyplot as plt
 
 
@@ -23,8 +22,8 @@ def simulation_demo():
     pm.data2connection("../data/Desikan_68/data/sc_train.csv", True)
     Cij = pm.Cij
     w_ee, w_ei, w_ii, w_e, w_i, j_nmda, j_i, I_b, alpha_e, b_e, d_e, alpha_i, b_i, d_i, tau_e, tau_i, gamma, sigma = pm.args
-    g = 0.05
-    w_ie = 5
+    g = 1
+    w_ie = 1
     y = node_network.integrate(pm, init=None, g=g, w_ie=w_ie, console_output=True)
     fig = plt.figure(figsize=(8, 6), dpi=100)
     ax1 = fig.add_subplot(6, 1, 1)
@@ -69,7 +68,4 @@ def simulation_pytorch():
     y = node_network(w_ie, Cij, 0.05)
 
 
-
-
-
-simulation_pytorch()
+simulation_demo()

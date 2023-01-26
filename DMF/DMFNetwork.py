@@ -23,18 +23,19 @@ class DMFNetwork:
         """
         assert isinstance(w_ie, torch.Tensor)
         assert isinstance(c_ij, torch.Tensor)
-        self.m, self.n = w_ie.shape
+        self.m, self.n = w_ie.shape  # m means batch, n means number of brain regions
         print('w_ie.shape, dtype', w_ie.shape, w_ie.dtype)
         self.w_ie = w_ie  # shape = m, n
         self.c_ij = c_ij  # i to j, shape = n, n
+        # The following shows equations states
         self.I_e = torch.zeros_like(w_ie)  # shape = m, n
         self.I_i = torch.zeros_like(w_ie)  # shape = m, n
         self.s_e = torch.rand(w_ie.shape, dtype=w_ie.dtype)  # shape = m, n
         self.s_i = torch.rand(w_ie.shape, dtype=w_ie.dtype)  # shape = m, n
         self.r_e = torch.zeros_like(w_ie)  # shape = m, n
         self.r_i = torch.zeros_like(w_ie)  # shape = m, n
-
-        self.g = kwargs.get("g", 1)
+        # The following parameters can be adjusted
+        self.g = kwargs.get("g", 2.)
         self.w_ee = kwargs.get("w_ee", 1.4)
         self.w_ei = kwargs.get("w_ei", 1.)
         self.w_ii = kwargs.get("w_ii", 1.)
@@ -54,6 +55,10 @@ class DMFNetwork:
         self.gamma = kwargs.get("gamma", 0.641)
         self.sigma = kwargs.get("sigma", 0.01)
 
+    @property
+    def state(self):
+        return self.I_e, self.I_i, self.s_e, self.s_i, self.r_e, self.r_i
+
     @staticmethod
     def phi(x, a, b, d):
         """
@@ -63,6 +68,7 @@ class DMFNetwork:
 
     @staticmethod
     def draw_state(state):
+        # state.shape = T, m, n, state_number
         fig = mp.figure(figsize=(8, 6), dpi=100)
         ax1 = fig.add_subplot(6, 1, 1)
         ax2 = fig.add_subplot(6, 1, 2)
@@ -70,13 +76,13 @@ class DMFNetwork:
         ax4 = fig.add_subplot(6, 1, 4)
         ax5 = fig.add_subplot(6, 1, 5)
         ax6 = fig.add_subplot(6, 1, 6)
-        for i in range(state.shape[3]):
-            ax1.plot(state[:, 2, :, i].mean(-1), lw=1.)
-            ax2.plot(state[:, 3, :, i].mean(-1), lw=1.)
-            ax3.plot(state[:, 0, :, i].mean(-1), lw=1.)
-            ax4.plot(state[:, 1, :, i].mean(-1), lw=1.)
-            ax5.plot(state[:, 4, :, i].mean(-1), lw=1.)
-            ax6.plot(state[:, 5, :, i].mean(-1), lw=1.)
+        for i in range(state.shape[2]):
+            ax1.plot(state[:, :, i, 2].mean(-1), lw=1.)
+            ax2.plot(state[:, :, i, 3].mean(-1), lw=1.)
+            ax3.plot(state[:, :, i, 0].mean(-1), lw=1.)
+            ax4.plot(state[:, :, i, 1].mean(-1), lw=1.)
+            ax5.plot(state[:, :, i, 4].mean(-1), lw=1.)
+            ax6.plot(state[:, :, i, 5].mean(-1), lw=1.)
         ax1.set_ylabel(r"$S_e$")
         ax2.set_ylabel(r"$S_i$")
         ax3.set_ylabel(r"$I_e$")
@@ -86,15 +92,16 @@ class DMFNetwork:
         fig.tight_layout()
         fig.show()
 
-    def initialize(self, steps=1, dt=1e-3, **kwargs):
-        self.I_e = kwargs.get("r_e", self.I_e)
-        self.I_i = kwargs.get("r_i", self.I_i)
+    def initialize(self, steps: int = 1, dt: float = 1e-3, **kwargs):
+        self.I_e = kwargs.get("I_e", self.I_e)
+        self.I_i = kwargs.get("I_i", self.I_i)
         self.s_e = kwargs.get("s_e", self.s_e)
         self.s_i = kwargs.get("s_i", self.s_i)
-        self.r_e = kwargs.get("I_e", self.r_e)
-        self.r_i = kwargs.get("I_i", self.r_i)
+        self.r_e = kwargs.get("r_e", self.r_e)
+        self.r_i = kwargs.get("r_i", self.r_i)
         self.g = kwargs.get("g", self.g)
-        return self.run(steps=steps, dt=dt)
+        self.w_ie = kwargs.get("w_ie", self.w_ie)
+        return self.run(w_ie=self.w_ie, steps=steps, dt=dt)
 
     def run(self, w_ie=None, steps: int = 1, dt: float = 1e-3, print_info=False):
         """
@@ -172,18 +179,21 @@ class DMFNetwork:
         self.g = para[1].mean()
 
     def simulation(self, observation_time=1000):
-        state = torch.stack(self.initialize()).unsqueeze(0)
+        state = torch.stack(self.initialize(), -1).unsqueeze(0)
         print(state.shape)
         for i in range(observation_time):
-            state = torch.cat((state, torch.stack(self.run()).unsqueeze(0)), 0)
-        print(state[-1, :, 0].mean(-1), state.shape)
+            state = torch.cat((state, torch.stack(self.run(), -1).unsqueeze(0)), 0)
+        print(state[-1, 0].mean(0), state.shape)
         self.draw_state(state)
+        return state[1:, 0, :, -2:].mean(-1)
 
 
 if __name__ == '__main__':
     wie = torch.ones(1, 68)
-    cij = np.loadtxt("../data/Desikan_68/data/sc_train.csv",
-                     delimiter=",", dtype=np.float32)
-    cij = torch.from_numpy(cij / cij.max())
+    cij = np.loadtxt("../data/Desikan_68/data/sc_train.csv", delimiter=",", dtype=np.float32)
+    # cij = np.random.rand(68, 68).astype(np.float32)
+    cij = torch.from_numpy(cij / np.max(cij))
     dmf = DMFNetwork(wie, cij)
-    dmf.simulation()
+    observation = dmf.simulation()
+    np.save('observation.npy', observation.numpy())
+

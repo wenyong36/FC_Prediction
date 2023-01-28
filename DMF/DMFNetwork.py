@@ -189,11 +189,12 @@ class DMFNetwork:
 
 
 if __name__ == '__main__':
-    wie = torch.ones(1, 68)
-    cij = np.loadtxt("../data/Desikan_68/data/sc_train.csv", delimiter=",", dtype=np.float32)
+    # cij = np.loadtxt("../data/Desikan_68/data/sc_train.csv", delimiter=",", dtype=np.float32)
     # cij = np.random.rand(68, 68).astype(np.float32)
+    cij = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]]).astype(np.float32)
     cij = torch.from_numpy(cij / np.max(cij))
+    wie = torch.ones(1, cij.shape[0])
     dmf = DMFNetwork(wie, cij)
     observation = dmf.simulation()
-    np.save('observation.npy', observation.numpy())
+    np.save('observation_n3.npy', observation.numpy())
 

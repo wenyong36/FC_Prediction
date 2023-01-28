@@ -21,18 +21,36 @@ def observation_matrix(brain_num, state_num):
 def enKF(w_hat, bold_sigma: float, bold_t):
     ensembles, brain_num, state_num = w_hat.shape  # ensemble, brain_n, w_ie+s+hemodynamic_state
     h = observation_matrix(brain_num, state_num).type_as(w_hat)  # brain_n, brain_n*state_num
-    w_mean = torch.mean(w_hat, dim=0, keepdim=True)  # ensemble, brain_n, state_num
+    w_mean = torch.mean(w_hat, dim=0, keepdim=True)  # 1, brain_n, state_num
     w_diff = (w_hat - w_mean).reshape(ensembles, -1)  # ensemble, brain_n*state_num
-    w_hx = (h.repeat(ensembles, 1, 1) @ w_diff.unsqueeze(-1)).reshape(ensembles, brain_num)  # ensemble, brain_n
-    w_s = w_hx.T @ w_hx / (ensembles - 1) + bold_sigma * torch.eye(brain_num).type_as(w_hat)  # brain_n, brain_n
-    print('det, cond:', torch.linalg.det(w_s), torch.linalg.cond(w_s))
-    kalman = (w_diff.T @ w_hx/(ensembles - 1)) @ torch.linalg.inv(w_s)  # (brain_num*state_num, brain_n)
+    h_diff = (h.repeat(ensembles, 1, 1) @ w_diff.unsqueeze(-1)).reshape(ensembles, brain_num)  # ensemble, brain_n
+    w_s = h_diff.T @ h_diff / (ensembles - 1) + bold_sigma * torch.eye(brain_num).type_as(w_hat)  # brain_n, brain_n
+    # print('det, cond:', torch.linalg.det(w_s), torch.linalg.cond(w_s))
+    kalman = (w_diff.T @ h_diff/(ensembles - 1)) @ torch.linalg.inv(w_s)  # (brain_num*state_num, brain_n)
     bold_with_noise = bold_t + bold_sigma ** 0.5 * torch.randn(ensembles, brain_num).type_as(bold_t)
-    w_hat += (kalman.repeat(ensembles, 1, 1) @ (bold_with_noise-w_hx).unsqueeze(-1)).reshape(w_hat.shape)
+    w_hx = (h.repeat(ensembles, 1, 1) @ w_hat.reshape(ensembles, -1, 1))  # ensembles, brain_num, 1
+    w_hat += (kalman.repeat(ensembles, 1, 1) @ (bold_with_noise.unsqueeze(-1) - w_hx)).reshape(w_hat.shape)
     return w_hat
 
 
-def diffusion_enkf(w_hat, bold_sigma, bold_t, solo_rate, debug=False):
+def distributed_enkf(w_hat, bold_sigma: float, bold_t):
+    ensembles, brain_num, state_num = w_hat.shape  # ensemble, brain_n, w_ie+s+hemodynamic_state
+    h = observation_matrix(brain_num, state_num).type_as(w_hat)  # brain_n, brain_n*state_num
+    bold_with_noise = bold_t + bold_sigma ** 0.5 * torch.randn(ensembles, brain_num).type_as(bold_t)
+    w_mean = torch.mean(w_hat, dim=0, keepdim=True)  # 1, brain_n, state_num
+    w_diff = (w_hat - w_mean).reshape(ensembles, -1)  # ensemble, brain_n*state_num
+    w_xx = (w_diff.T @ w_diff) / (ensembles - 1)  # brain_n*state_num, brain_n*state_num
+    for i in range(brain_num):
+        bold_with_noise_i = bold_with_noise[:, i].reshape(ensembles, 1, 1)
+        h_i = h[i].reshape(1, brain_num * state_num)
+        r_l = bold_sigma + (h_i @ w_xx @ h_i.T)  # 1
+        w_hx = (h_i.repeat(ensembles, 1, 1) @ w_hat.reshape(ensembles, -1, 1))  # ensembles, 1, 1
+        w_hat += (w_xx @ h_i.T).reshape(1, brain_num, state_num) / r_l * (bold_with_noise_i - w_hx)
+        w_xx -= w_xx @ h_i.T @ h_i @ w_xx / r_l
+    return w_hat
+
+
+def diffusion_enkf(w_hat, bold_sigma, bold_t, solo_rate):
     ensembles, brain_num, state_num = w_hat.shape
     w = w_hat.clone()  # ensemble, brain_n, hp_num+hemodynamic_state
     w_mean = torch.mean(w_hat, dim=0, keepdim=True)
@@ -40,19 +58,13 @@ def diffusion_enkf(w_hat, bold_sigma, bold_t, solo_rate, debug=False):
     w_cx = w_diff[:, :, -1] * w_diff[:, :, -1]
     w_cxx = torch.sum(w_cx, dim=0) / (ensembles - 1) + bold_sigma
     temp = w_diff[:, :, -1] / (w_cxx.reshape([1, brain_num])) / (ensembles - 1)  # (ensemble, brain)
-    # kalman = torch.mm(temp.T, w_diff.reshape([ensembles, brain_num*state_num]))  # (brain_n, brain_num*state_num)
-    bold_with_noise = bold_t + bold_sigma ** 0.5 * torch.normal(0, 1, size=(ensembles, brain_num)).type_as(bold_t)
+    # kalman = temp.T @ w_diff.reshape([ensembles, brain_num*state_num])  # (brain_n, brain_num*state_num)
+    bold_with_noise = bold_t + bold_sigma ** 0.5 * torch.randn(ensembles, brain_num).type_as(bold_t)
     w += solo_rate * (bold_with_noise - w_hat[:, :, -1])[:, :, None] * torch.sum(temp[:, :, None] * w_diff, dim=0,
                                                                                  keepdim=True)
-    w += (1 - solo_rate) * torch.mm(torch.mm(bold_with_noise - w_hat[:, :, -1], temp.T) / brain_num,
-                                    w_diff.reshape([ensembles, -1])).reshape(w_hat.shape)
-    if debug:
-        w_debug = w_hat[:, :10, -1][None, :, :] + (bold_with_noise - w_hat[:, :, -1]).T[:, :, None] \
-                  * torch.mm(temp.T, w_diff[:, :10, -1])[:, None, :]  # brain_num, ensemble, 10
-        return w, w_debug
-    else:
-        # print(w_cxx.max(), w_cxx.min(), w[:, :, :-6].max(), w[:, :, :-6].min())
-        return w
+    w += (1 - solo_rate) * (((bold_with_noise - w_hat[:, :, -1]) @ temp.T / brain_num)
+                            @ w_diff.reshape([ensembles, -1])).reshape(w_hat.shape)
+    return w
 
 
 class DMFAssimilation:
@@ -63,7 +75,7 @@ class DMFAssimilation:
         # self.bold = hemodynamic(**kwargs)
         self.ensemble, self.n = w_ie.shape
         self.noise_p = kwargs.get("noise_p", 1)
-        self.sigma_o = kwargs.get("sigma_o", 1e-2)
+        self.sigma_o = kwargs.get("sigma_o", 1)
         self.w = None
         self.wie_lower = torch.zeros_like(self.w_ie[0])
         self.wie_upper = 3 * torch.ones_like(self.w_ie[0])
@@ -112,8 +124,9 @@ class DMFAssimilation:
         self.dmfNetwork.update_s((self.w_ie, g * torch.ones(self.n)), (self.w[:, :, 1], self.w[:, :, 2]))
         state = torch.stack(self.dmfNetwork.run(steps=steps, dt=dt, print_info=False), -1)
         self.w = torch.dstack((wie_log.unsqueeze(-1), state[:, :, 2:4], state[:, :, 4:6].mean(-1).unsqueeze(-1)))
-        self.w = enKF(self.w, self.sigma_o, bold_t)
-        # self.w = diffusion_enkf(self.w, self.sigma_o, bold_t, 0.5)
+        # self.w = enKF(self.w, self.sigma_o, bold_t)
+        # self.w = distributed_enkf(self.w, self.sigma_o, bold_t)
+        self.w = diffusion_enkf(self.w, self.sigma_o, bold_t, 0.5)
         return self.w
 
     def data_assimilation(self, bold_o, times=None):
@@ -127,21 +140,14 @@ class DMFAssimilation:
             state = torch.cat((state, torch.stack(self.dmfNetwork.state, -1).unsqueeze(0)), 0)
         print(state.shape)
         self.dmfNetwork.draw_state(state)
-        print(self.w_ie-1)
-
-
-def test():
-    a = torch.rand(2, 3, 4)
-    b = torch.rand(3)
-    c = enKF(a, 1., b)
-    print(c)
+        print(self.w_ie, self.w_ie.mean())
 
 
 if __name__ == '__main__':
-    cij = np.loadtxt("../data/Desikan_68/data/sc_train.csv", delimiter=",", dtype=np.float32)
+    cij = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]]).astype(np.float32)
+    # cij = np.loadtxt("../data/Desikan_68/data/sc_train.csv", delimiter=",", dtype=np.float32)
     cij = torch.from_numpy(cij / np.max(cij))
-    wie = torch.rand(100, cij.shape[0])
+    wie = 3 * torch.rand(100, cij.shape[0])
     dmfAssimilation = DMFAssimilation(wie, cij)
-    observation = torch.from_numpy(np.load('observation.npy').astype(np.float32))
-    dmfAssimilation.data_assimilation(observation, 100)
-    # test()
+    observation = torch.from_numpy(np.load('observation_n3.npy').astype(np.float32))
+    dmfAssimilation.data_assimilation(observation, 200)
